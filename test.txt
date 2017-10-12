@@ -1,0 +1,208 @@
+package net.loeuillet.wifi_eap_sim_conf;
+
+import android.annotation.TargetApi;
+import android.app.Activity;
+import android.content.Context;
+import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiEnterpriseConfig;
+import android.net.wifi.WifiManager;
+import android.os.Build;
+import android.os.Bundle;
+import android.telephony.TelephonyManager;
+import android.text.TextUtils;
+import android.widget.Toast;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.List;
+
+import static java.lang.String.format;
+
+//import android.telephony.IccOpenLogicalChannelResponse;
+
+public class MyActivity extends Activity {
+
+    private WifiManager wifiManager = null;
+    private String message = "Configuration saved Successfully!!";
+
+    public static void printMethodNamesForThisDevice(Context context, Class myClass) {
+        String data = "";
+        String data2 = "";
+        String data3 = "";
+        Class<?> telephonyClass;
+        try {
+            telephonyClass = Class.forName(myClass.getName());
+            Method[] methods = telephonyClass.getMethods();
+            for (int idx = 0; idx < methods.length; idx++) {
+
+                data += ("\n" + methods[idx] + " declared by " + methods[idx].getDeclaringClass());
+            }
+            Field[] fields = telephonyClass.getFields();
+            for (int idx = 0; idx < methods.length; idx++) {
+
+                data2 += ("\n" + fields[idx] + " declared by " + fields[idx].getName());
+            }
+
+            Field[] fieldss = telephonyClass.getDeclaredFields();
+            for (int idx = 0; idx < methods.length; idx++) {
+
+                data3 += ("\n" + fieldss[idx] + " declared by " + fieldss[idx].getName());
+            }
+
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+        System.out.print(data);
+        System.out.print(data2);
+        System.out.print(data3);
+    }
+
+    public static String formatSSID(String wifiSSID) {
+        return format("\"%s\"", wifiSSID);
+    }
+
+    public static boolean areEqual(String SSID, String anotherSSID) {
+        return TextUtils.equals(trimQuotes(SSID), trimQuotes(anotherSSID));
+    }
+
+    public static String trimQuotes(String str) {
+        return !isEmpty(str) ? str.replaceAll("^\"*", "").replaceAll("\"*$", "") : str;
+    }
+
+    public static boolean isEmpty(CharSequence str) {
+        return str == null || str.toString().isEmpty();
+    }
+
+    @TargetApi(Build.VERSION_CODES.M)
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        printMethodNamesForThisDevice(getApplicationContext(), WifiConfiguration.class);
+        String ssid = "
+        
+        ";
+        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+        String simOperator = tel.getSimOperator(); // Not getNetworkOperator wrt Roaming
+
+        if (simOperator != null) {
+            int mcc = Integer.parseInt(simOperator.substring(0, 3));
+            int mnc = Integer.parseInt(simOperator.substring(3));
+            if (!ssid.isEmpty()) {
+                WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
+                enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.AKA); // EAP SIM / AKA for Mobile Phones
+                enterpriseConfig.setPlmn("861808030447340");
+
+//                SmsManager sm = SmsManager.getDefault();
+////                Bundle b = sm.getCarrierConfigValues();
+////                String NAI_suffix = b.getString(SmsManager.MMS_CONFIG_NAI_SUFFIX);
+//
+//                // IMSI : 208(mcc) + 15(mnc) + 0000XXXXXX + @...
+//                enterpriseConfig.setIdentity("861808030447340"); // Use 1 + IMSI (See RFC4186)
+                WifiConfiguration wifiConfig = new WifiConfiguration();
+                wifiConfig.SSID = formatSSID(ssid);
+                //wifiConfig.priority = 0; // Use lower priority than known APs
+                wifiConfig.status = WifiConfiguration.Status.ENABLED;
+                wifiConfig.allowedKeyManagement.clear();
+                wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_EAP);
+                wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.IEEE8021X);
+                wifiConfig.enterpriseConfig = enterpriseConfig;
+                set(wifiConfig, "simSlot", "1");
+                wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+                wifiManager.setWifiEnabled(true);
+                wifiManager.disconnect();
+
+                int networkId = wifiManager.addNetwork(wifiConfig);
+                wifiManager.saveConfiguration();
+                networkId = networkId == -1 ? getExistingNetworkId(ssid) : networkId;
+                if (networkId != -1) {
+                    wifiManager.reconnect();
+                    wifiManager.enableNetwork(networkId, true);
+                    message = "1 - " + message;
+                } else {
+                    wifiManager.updateNetwork(wifiConfig);
+                    message = "2 - " + message;
+                }
+            }
+        }
+        printMethodNamesForThisDevice(getApplicationContext(), WifiEnterpriseConfig.class);
+        setContentView(R.layout.activity_my);
+    }
+    public static boolean set(Object object, String fieldName, Object fieldValue) {
+        Class<?> clazz = object.getClass();
+        while (clazz != null) {
+            try {
+                Field field = clazz.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.set(object, fieldValue);
+                return true;
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return false;
+    }
+    private void fireReflectionMethod(Class classObj, Class parameterClass, Object parameterObject, String methodName) {
+        try {
+
+            Class<?> telephonyClass = Class.forName(classObj.getClass().getName());
+            Class<?>[] parameter = new Class[1];
+            parameter[0] = parameterClass;
+            Method getSimStateGemini = telephonyClass.getMethod(methodName, parameter);
+
+            Object[] obParameter = new Object[1];
+            obParameter[0] = parameterObject;
+            Object ob_phone = getSimStateGemini.invoke(classObj, obParameter);
+
+            if (ob_phone != null) {
+                System.out.print(ob_phone.toString());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+//        finish();
+    }
+
+    private int getExistingNetworkId(String SSID) {
+        List<WifiConfiguration> configuredNetworks = wifiManager.getConfiguredNetworks();
+        if (configuredNetworks != null) {
+            for (WifiConfiguration existingConfig : configuredNetworks) {
+                if (areEqual(trimQuotes(existingConfig.SSID), trimQuotes(SSID))) {
+                    return existingConfig.networkId;
+                }
+            }
+        }
+        return -1;
+    }
+
+
+}
+
+/*
+
+https://developer.android.com/sdk/api_diff/21/changes.html
+https://developer.android.com/sdk/api_diff/21/changes/android.net.wifi.WifiEnterpriseConfig.Eap.html
+https://developer.android.com/sdk/api_diff/21/changes/android.telephony.TelephonyManager.html
+
+https://developer.android.com/reference/android/net/wifi/WifiEnterpriseConfig.Eap.html
+https://developer.android.com/reference/android/telephony/IccOpenLogicalChannelResponse.html
+https://developer.android.com/reference/android/telephony/TelephonyManager.html
+
+android.telephony.TelephonyManager
+
+Added Methods
+boolean iccCloseLogicalChannel(int)
+byte[] iccExchangeSimIO(int, int, int, int, int, String)
+IccOpenLogicalChannelResponse iccOpenLogicalChannel(String)
+String iccTransmitApduBasicChannel(int, int, int, int, int, String)
+String iccTransmitApduLogicalChannel(int, int, int, int, int, int, String)
+String sendEnvelopeWithStatus(String)
+
+ */
