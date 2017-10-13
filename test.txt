@@ -1,20 +1,19 @@
-package net.loeuillet.wifi_eap_sim_conf;
+package jio.com.jioprivate;
 
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiEnterpriseConfig;
 import android.net.wifi.WifiManager;
-import android.os.Build;
 import android.os.Bundle;
-import android.telephony.TelephonyManager;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.text.TextUtils;
-import android.util.Log;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.List;
 
 import static java.lang.String.format;
@@ -23,43 +22,123 @@ import static java.lang.String.format;
 
 public class MyActivity extends Activity {
 
-    private WifiManager wifiManager = null;
-    private String message = "Configuration saved Successfully!!";
+    private WifiManager wfMgr = null;
+    String ssid = "JioPrivateNet";
 
-    public static void printMethodNamesForThisDevice(Context context, Class myClass) {
-        String data = "";
-        String data2 = "";
-        String data3 = "";
-        Class<?> telephonyClass;
-        try {
-            telephonyClass = Class.forName(myClass.getName());
-            Method[] methods = telephonyClass.getMethods();
-            for (int idx = 0; idx < methods.length; idx++) {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        wfMgr = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
 
-                data += ("\n" + methods[idx] + " declared by " + methods[idx].getDeclaringClass());
+        setContentView(R.layout.activity_my);
+        connectToJioPrivate();
+
+    }
+
+    private void connectToJioPrivate() {
+        if (!ssid.isEmpty() && PermissionChecker.checkReadPhoneStatePermission(this)) {
+            WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
+            enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.AKA); // EAP SIM / AKA for Mobile Phones
+            WifiConfiguration wifiConfig = new WifiConfiguration();
+            Field field = null;
+            try {
+                field = wifiConfig.getClass().getDeclaredField("SIMNum");
+                field.setInt(wifiConfig, getJioSimSlot());
+
+            } catch (NoSuchFieldException e) {
+                e.printStackTrace();
+
+                try {
+                    field = wifiConfig.getClass().getDeclaredField("simSlot");
+                    field.set(wifiConfig, String.valueOf(getJioSimSlot()));
+                } catch (NoSuchFieldException e1) {
+                    e1.printStackTrace();
+                } catch (IllegalAccessException e1) {
+                    e1.printStackTrace();
+                }
+
+
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
             }
-            Field[] fields = telephonyClass.getFields();
-            for (int idx = 0; idx < methods.length; idx++) {
 
-                data2 += ("\n" + fields[idx] + " declared by " + fields[idx].getName());
+            //displayConfig();
+            wifiConfig.SSID = formatSSID(ssid);
+            wifiConfig.status = WifiConfiguration.Status.ENABLED;
+            wifiConfig.allowedKeyManagement.clear();
+            wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_EAP);
+            wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.IEEE8021X);
+            wifiConfig.enterpriseConfig = enterpriseConfig;
+            wfMgr.setWifiEnabled(true);
+           // wfMgr.disconnect();
+            int networkId = wfMgr.addNetwork(wifiConfig);
+            networkId = networkId == -1 ? getExistingNetworkId(ssid) : networkId;
+            if (networkId != -1) {
+                wfMgr.reconnect();
+                wfMgr.enableNetwork(networkId, true);
+            } else {
+                wfMgr.updateNetwork(wifiConfig);
             }
-
-            Field[] fieldss = telephonyClass.getDeclaredFields();
-            for (int idx = 0; idx < methods.length; idx++) {
-
-                data3 += ("\n" + fieldss[idx] + " declared by " + fieldss[idx].getName());
-            }
-
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
         }
-        System.out.print(data);
-        System.out.print(data2);
-        System.out.print(data3);
+       ((TextView) findViewById(R.id.config_text)).setText("Provider name:" + providerName + "\nSim Slot:" + simNumber);
+
+
+    }
+
+    private void displayConfig() {
+        if (wfMgr.isWifiEnabled()) {
+            StringBuffer configList = new StringBuffer();
+            final List<WifiConfiguration> wifiConfigs = wfMgr.getConfiguredNetworks();
+            for (WifiConfiguration i : wifiConfigs) {
+                if (i.SSID != null && i.SSID.equals("\"" + ssid + "\"")) {
+                    configList.append(i);
+                    ((TextView) findViewById(R.id.config_text)).setText(configList);
+                }
+            }
+
+        } else {
+        }
     }
 
     public static String formatSSID(String wifiSSID) {
         return format("\"%s\"", wifiSSID);
+    }
+
+
+    private int simNumber = 1;
+    private String providerName = "Default";
+
+    private int getJioSimSlot() {
+
+        SubscriptionManager subscriptionManager = SubscriptionManager.from(this);
+        List<SubscriptionInfo> activeSubscriptionInfoList = subscriptionManager.getActiveSubscriptionInfoList();
+        if (activeSubscriptionInfoList != null) {
+            for (SubscriptionInfo subscriptionInfo : activeSubscriptionInfoList) {
+                CharSequence carrierName = subscriptionInfo.getCarrierName();
+                if (carrierName != null && carrierName.toString().toLowerCase().contains("JIO".toLowerCase())) {
+                    simNumber = subscriptionInfo.getSimSlotIndex();
+                    providerName = carrierName.toString();
+                    simNumber = simNumber + 1;
+
+                }
+
+            }
+        }
+
+        return simNumber;
+    }
+
+
+    private int getExistingNetworkId(String SSID) {
+        List<WifiConfiguration> configuredNetworks = wfMgr.getConfiguredNetworks();
+        if (configuredNetworks != null) {
+            for (WifiConfiguration existingConfig : configuredNetworks) {
+                if (areEqual(trimQuotes(existingConfig.SSID), trimQuotes(SSID))) {
+                    return existingConfig.networkId;
+                }
+            }
+        }
+        return -1;
     }
 
     public static boolean areEqual(String SSID, String anotherSSID) {
@@ -74,394 +153,30 @@ public class MyActivity extends Activity {
         return str == null || str.toString().isEmpty();
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        long sysTime = System.currentTimeMillis();
-        printMethodNamesForThisDevice(getApplicationContext(), WifiConfiguration.class);
-        String ssid = "KioPrivateNet";
-        TelephonyManager tel = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
-        String simOperator = tel.getSimOperator(); // Not getNetworkOperator wrt Roaming
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        if (simOperator != null) {
-            int mcc = Integer.parseInt(simOperator.substring(0, 3));
-            int mnc = Integer.parseInt(simOperator.substring(3));
-            if (!ssid.isEmpty()) {
-                WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
-                enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.AKA); // EAP SIM / AKA for Mobile Phones
-                enterpriseConfig.setPlmn("861808030447340");
-
-//                SmsManager sm = SmsManager.getDefault();
-////                Bundle b = sm.getCarrierConfigValues();
-////                String NAI_suffix = b.getString(SmsManager.MMS_CONFIG_NAI_SUFFIX);
-//
-//                // IMSI : 208(mcc) + 15(mnc) + 0000XXXXXX + @...
-//                enterpriseConfig.setIdentity("861808030447340"); // Use 1 + IMSI (See RFC4186)
-                WifiConfiguration wifiConfig = new WifiConfiguration();
-                wifiConfig.SSID = formatSSID(ssid);
-                //wifiConfig.priority = 0; // Use lower priority than known APs
-                wifiConfig.status = WifiConfiguration.Status.ENABLED;
-                wifiConfig.allowedKeyManagement.clear();
-                wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_EAP);
-                wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.IEEE8021X);
-                wifiConfig.enterpriseConfig = enterpriseConfig;
-                set(wifiConfig, "simSlot", "1");
-                wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-                wifiManager.setWifiEnabled(true);
-                wifiManager.disconnect();
-
-                int networkId = wifiManager.addNetwork(wifiConfig);
-                wifiManager.saveConfiguration();
-                networkId = networkId == -1 ? getExistingNetworkId(ssid) : networkId;
-                if (networkId != -1) {
-                    wifiManager.reconnect();
-                    wifiManager.enableNetwork(networkId, true);
-                    message = "1 - " + message;
+        switch (requestCode) {
+            case PermissionChecker.MY_PERMISSIONS_REQUEST: {
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    connectToJioPrivate();
                 } else {
-                    wifiManager.updateNetwork(wifiConfig);
-                    message = "2 - " + message;
+
+
+                    Toast.makeText(getBaseContext(), "Permission required to launch this applilcation", Toast.LENGTH_SHORT).show();
+                    finish();
+
                 }
-                long diff = System.currentTimeMillis() - sysTime;
-                Log.d("DIFF", diff + "<<");
+                return;
             }
+
         }
-        printMethodNamesForThisDevice(getApplicationContext(), WifiEnterpriseConfig.class);
-        setContentView(R.layout.activity_my);
-    }
-    public static boolean set(Object object, String fieldName, Object fieldValue) {
-        Class<?> clazz = object.getClass();
-        while (clazz != null) {
-            try {
-                Field field = clazz.getDeclaredField(fieldName);
-                field.setAccessible(true);
-                field.set(object, fieldValue);
-                return true;
-            } catch (NoSuchFieldException e) {
-                clazz = clazz.getSuperclass();
-            } catch (Exception e) {
-                throw new IllegalStateException(e);
-            }
-        }
-        return false;
-    }
-    private void fireReflectionMethod(Class classObj, Class parameterClass, Object parameterObject, String methodName) {
-        try {
 
-            Class<?> telephonyClass = Class.forName(classObj.getClass().getName());
-            Class<?>[] parameter = new Class[1];
-            parameter[0] = parameterClass;
-            Method getSimStateGemini = telephonyClass.getMethod(methodName, parameter);
-
-            Object[] obParameter = new Object[1];
-            obParameter[0] = parameterObject;
-            Object ob_phone = getSimStateGemini.invoke(classObj, obParameter);
-
-            if (ob_phone != null) {
-                System.out.print(ob_phone.toString());
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-//        finish();
-    }
-
-    private int getExistingNetworkId(String SSID) {
-        List<WifiConfiguration> configuredNetworks = wifiManager.getConfiguredNetworks();
-        if (configuredNetworks != null) {
-            for (WifiConfiguration existingConfig : configuredNetworks) {
-                if (areEqual(trimQuotes(existingConfig.SSID), trimQuotes(SSID))) {
-                    return existingConfig.networkId;
-                }
-            }
-        }
-        return -1;
     }
 
 
 }
 
-/*
 
-https://developer.android.com/sdk/api_diff/21/changes.html
-https://developer.android.com/sdk/api_diff/21/changes/android.net.wifi.WifiEnterpriseConfig.Eap.html
-https://developer.android.com/sdk/api_diff/21/changes/android.telephony.TelephonyManager.html
-
-https://developer.android.com/reference/android/net/wifi/WifiEnterpriseConfig.Eap.html
-https://developer.android.com/reference/android/telephony/IccOpenLogicalChannelResponse.html
-https://developer.android.com/reference/android/telephony/TelephonyManager.html
-
-android.telephony.TelephonyManager
-
-Added Methods
-boolean iccCloseLogicalChannel(int)
-byte[] iccExchangeSimIO(int, int, int, int, int, String)
-IccOpenLogicalChannelResponse iccOpenLogicalChannel(String)
-String iccTransmitApduBasicChannel(int, int, int, int, int, String)
-String iccTransmitApduLogicalChannel(int, int, int, int, int, int, String)
-String sendEnvelopeWithStatus(String)
-
- */
- 
- 
- 
- 
- 
- 
- 
- package net.loeuillet.wifi_eap_sim_conf;
-
-import android.content.Context;
-import android.telephony.TelephonyManager;
-
-import java.lang.reflect.Method;
-
-public final class TelephonyInfo {
-
-    private static TelephonyInfo telephonyInfo;
-    private String imsiSIM1;
-    private String imsiSIM2;
-    private boolean isSIM1Ready;
-    private boolean isSIM2Ready;
-    private String networkOperatorSIM1;
-    private String networkOperatorSIM2;
-    private String deviceIdSIM1;
-    private String deviceIdSIM2;
-
-    public String getNetworkOperatorSIM1() {
-        return networkOperatorSIM1;
-    }
-
-    public String getNetworkOperatorSIM2() {
-        return networkOperatorSIM2;
-    }
-
-    public String getDeviceIdSIM1() {
-        return deviceIdSIM1;
-    }
-
-    public String getDeviceIdSIM2() {
-        return deviceIdSIM2;
-    }
-
-    public String getImsiSIM1() {
-        return imsiSIM1;
-    }
-
-    /*public static void setImsiSIM1(String imsiSIM1) {
-        TelephonyInfo.imsiSIM1 = imsiSIM1;
-    }*/
-
-    public String getImsiSIM2() {
-        return imsiSIM2;
-    }
-
-    /*public static void setImsiSIM2(String imsiSIM2) {
-        TelephonyInfo.imsiSIM2 = imsiSIM2;
-    }*/
-
-    public boolean isSIM1Ready() {
-        return isSIM1Ready;
-    }
-
-    /*public static void setSIM1Ready(boolean isSIM1Ready) {
-        TelephonyInfo.isSIM1Ready = isSIM1Ready;
-    }*/
-
-    public boolean isSIM2Ready() {
-        return isSIM2Ready;
-    }
-
-    /*public static void setSIM2Ready(boolean isSIM2Ready) {
-        TelephonyInfo.isSIM2Ready = isSIM2Ready;
-    }*/
-
-    public boolean isDualSIM() {
-        return imsiSIM2 != null;
-    }
-
-    private TelephonyInfo() {
-    }
-
-    public static TelephonyInfo getInstance(Context context) {
-
-        if (telephonyInfo == null) {
-
-            telephonyInfo = new TelephonyInfo();
-
-            TelephonyManager telephonyManager = ((TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE));
-
-            telephonyInfo.imsiSIM1 = telephonyManager.getDeviceId();
-            ;
-            telephonyInfo.imsiSIM2 = null;
-
-            try {
-                telephonyInfo.imsiSIM1 = getDeviceIdBySlot(context, "getDeviceIdGemini", 0);
-                telephonyInfo.imsiSIM2 = getDeviceIdBySlot(context, "getDeviceIdGemini", 1);
-            } catch (GeminiMethodNotFoundException e) {
-                e.printStackTrace();
-
-                try {
-                    telephonyInfo.imsiSIM1 = getDeviceIdBySlot(context, "getDeviceId", 0);
-                    telephonyInfo.imsiSIM2 = getDeviceIdBySlot(context, "getDeviceId", 1);
-                } catch (GeminiMethodNotFoundException e1) {
-                    //Call here for next manufacturer's predicted method name if you wish
-                    e1.printStackTrace();
-                }
-            }
-
-            telephonyInfo.isSIM1Ready = telephonyManager.getSimState() == TelephonyManager.SIM_STATE_READY;
-            telephonyInfo.isSIM2Ready = false;
-
-            try {
-                telephonyInfo.isSIM1Ready = getSIMStateBySlot(context, "getSimStateGemini", 0);
-                telephonyInfo.isSIM2Ready = getSIMStateBySlot(context, "getSimStateGemini", 1);
-            } catch (GeminiMethodNotFoundException e) {
-
-                e.printStackTrace();
-
-                try {
-                    telephonyInfo.isSIM1Ready = getSIMStateBySlot(context, "getSimState", 0);
-                    telephonyInfo.isSIM2Ready = getSIMStateBySlot(context, "getSimState", 1);
-                } catch (GeminiMethodNotFoundException e1) {
-                    //Call here for next manufacturer's predicted method name if you wish
-                    e1.printStackTrace();
-                }
-            }
-            telephonyInfo.networkOperatorSIM1 = telephonyManager.getNetworkOperatorName();
-            try {
-                telephonyInfo.networkOperatorSIM1 = getSIMOperatorBySlot(context, "getNetworkOperatorNameGemini", 0);
-                telephonyInfo.networkOperatorSIM2 = getSIMOperatorBySlot(context, "getNetworkOperatorNameGemini", 1);
-            } catch (GeminiMethodNotFoundException e) {
-                e.printStackTrace();
-                try {
-                    telephonyInfo.networkOperatorSIM1 = getSIMOperatorBySlot(context, "getNetworkOperatorName", 0);
-                    telephonyInfo.networkOperatorSIM2 = getSIMOperatorBySlot(context, "getNetworkOperatorName", 1);
-                } catch (GeminiMethodNotFoundException e1) {
-                    e1.printStackTrace();
-                }
-            }
-            try {
-                telephonyInfo.deviceIdSIM1 = getSIMOperatorBySlot(context, "getNetworkOperatorForPhoneGemini", 0);
-                telephonyInfo.deviceIdSIM2 = getSIMOperatorBySlot(context, "getNetworkOperatorForPhoneGemini", 1);
-            } catch (GeminiMethodNotFoundException e) {
-                e.printStackTrace();
-                try {
-                    telephonyInfo.deviceIdSIM1 = getSIMOperatorBySlot(context, "getNetworkOperatorForPhone", 0);
-                    telephonyInfo.deviceIdSIM2 = getSIMOperatorBySlot(context, "getNetworkOperatorForPhone", 1);
-                } catch (GeminiMethodNotFoundException e1) {
-                    e1.printStackTrace();
-                }
-            }
-        }
-
-        return telephonyInfo;
-    }
-
-    private static String getDeviceIdBySlot(Context context, String predictedMethodName, int slotID) throws GeminiMethodNotFoundException {
-
-        String imsi = null;
-
-        TelephonyManager telephony = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-
-        try {
-
-            Class<?> telephonyClass = Class.forName(telephony.getClass().getName());
-
-            Class<?>[] parameter = new Class[1];
-            parameter[0] = int.class;
-            Method getSimID = telephonyClass.getMethod(predictedMethodName, parameter);
-
-            Object[] obParameter = new Object[1];
-            obParameter[0] = slotID;
-            Object ob_phone = getSimID.invoke(telephony, obParameter);
-
-            if (ob_phone != null) {
-                imsi = ob_phone.toString();
-
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new GeminiMethodNotFoundException(predictedMethodName);
-        }
-
-        return imsi;
-    }
-
-    private static boolean getSIMStateBySlot(Context context, String predictedMethodName, int slotID) throws GeminiMethodNotFoundException {
-
-        boolean isReady = false;
-
-        TelephonyManager telephony = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-
-        try {
-
-            Class<?> telephonyClass = Class.forName(telephony.getClass().getName());
-
-            Class<?>[] parameter = new Class[1];
-            parameter[0] = int.class;
-            Method getSimStateGemini = telephonyClass.getMethod(predictedMethodName, parameter);
-
-            Object[] obParameter = new Object[1];
-            obParameter[0] = slotID;
-            Object ob_phone = getSimStateGemini.invoke(telephony, obParameter);
-
-            if (ob_phone != null) {
-                int simState = Integer.parseInt(ob_phone.toString());
-                if (simState == TelephonyManager.SIM_STATE_READY) {
-                    isReady = true;
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new GeminiMethodNotFoundException(predictedMethodName);
-        }
-
-        return isReady;
-    }
-
-    private static String getSIMOperatorBySlot(Context context, String predictedMethodName, int slotID) throws GeminiMethodNotFoundException {
-
-        String provider = "UnKnown";
-
-        TelephonyManager telephony = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-
-        try {
-
-            Class<?> telephonyClass = Class.forName(telephony.getClass().getName());
-
-            Class<?>[] parameter = new Class[1];
-            parameter[0] = int.class;
-            Method getSimStateGemini = telephonyClass.getMethod(predictedMethodName, parameter);
-
-            Object[] obParameter = new Object[1];
-            obParameter[0] = slotID;
-            Object ob_phone = getSimStateGemini.invoke(telephony, obParameter);
-
-            if (ob_phone != null) {
-                provider = ob_phone.toString();
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new GeminiMethodNotFoundException(predictedMethodName);
-        }
-
-        return provider;
-    }
-
-
-    private static class GeminiMethodNotFoundException extends Exception {
-
-        private static final long serialVersionUID = -996812356902545308L;
-
-        public GeminiMethodNotFoundException(String info) {
-            super(info);
-        }
-    }
-}
