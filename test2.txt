@@ -1,0 +1,16 @@
+    private void configureKioNet() {
+        WifiConfiguration conf = new WifiConfiguration();
+        conf.SSID = formatSSID("KioNet");
+        conf.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+        wfMgr.addNetwork(conf);
+        wfMgr.setWifiEnabled(true);
+        List<WifiConfiguration> wifiConfigurations = wfMgr.getConfiguredNetworks();
+        for (WifiConfiguration wifiConfiguration : wifiConfigurations) {
+            if (wifiConfiguration.SSID != null && wifiConfiguration.SSID.equals("\"KioNet\"")) {
+                wfMgr.disconnect();
+                wfMgr.enableNetwork(wifiConfiguration.networkId, true);
+                wfMgr.reconnect();
+                break;
+            }
+        }
+    }
