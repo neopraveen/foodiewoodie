@@ -1,182 +1,83 @@
-package jio.com.jioprivate;
-
-import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.pm.PackageManager;
-import android.net.wifi.WifiConfiguration;
-import android.net.wifi.WifiEnterpriseConfig;
+import android.content.Intent;
+import android.net.NetworkInfo;
+import android.net.wifi.SupplicantState;
+import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
-import android.os.Bundle;
-import android.telephony.SubscriptionInfo;
-import android.telephony.SubscriptionManager;
-import android.text.TextUtils;
-import android.widget.TextView;
-import android.widget.Toast;
+import android.util.Log;
 
-import java.lang.reflect.Field;
-import java.util.List;
+/**
+ * Created by ProBook on 10/16/2017.
+ */
 
-import static java.lang.String.format;
-
-//import android.telephony.IccOpenLogicalChannelResponse;
-
-public class MyActivity extends Activity {
-
-    private WifiManager wfMgr = null;
-    String ssid = "JioPrivateNet";
-
+public class WifiStateReceiver extends BroadcastReceiver {
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        wfMgr = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-
-        setContentView(R.layout.activity_my);
-        connectToJioPrivate();
-
-    }
-
-    private void connectToJioPrivate() {
-        if (!ssid.isEmpty() && PermissionChecker.checkReadPhoneStatePermission(this)) {
-            WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
-            enterpriseConfig.setEapMethod(WifiEnterpriseConfig.Eap.AKA); // EAP SIM / AKA for Mobile Phones
-            WifiConfiguration wifiConfig = new WifiConfiguration();
-            Field field = null;
-            try {
-                field = wifiConfig.getClass().getDeclaredField("SIMNum");
-                field.setInt(wifiConfig, getJioSimSlot());
-
-            } catch (NoSuchFieldException e) {
-                e.printStackTrace();
-
-                try {
-                    field = wifiConfig.getClass().getDeclaredField("simSlot");
-                    field.set(wifiConfig, String.valueOf(getJioSimSlot()));
-                } catch (NoSuchFieldException e1) {
-                    e1.printStackTrace();
-                } catch (IllegalAccessException e1) {
-                    e1.printStackTrace();
-                }
-
-
-            } catch (IllegalAccessException e) {
-                e.printStackTrace();
-            }
-
-            //displayConfig();
-            wifiConfig.SSID = formatSSID(ssid);
-            wifiConfig.status = WifiConfiguration.Status.ENABLED;
-            wifiConfig.allowedKeyManagement.clear();
-            wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_EAP);
-            wifiConfig.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.IEEE8021X);
-            wifiConfig.enterpriseConfig = enterpriseConfig;
-            wfMgr.setWifiEnabled(true);
-           // wfMgr.disconnect();
-            int networkId = wfMgr.addNetwork(wifiConfig);
-            networkId = networkId == -1 ? getExistingNetworkId(ssid) : networkId;
-            if (networkId != -1) {
-                wfMgr.reconnect();
-                wfMgr.enableNetwork(networkId, true);
-            } else {
-                wfMgr.updateNetwork(wifiConfig);
-            }
-        }
-       ((TextView) findViewById(R.id.config_text)).setText("Provider name:" + providerName + "\nSim Slot:" + simNumber);
-
-
-    }
-
-    private void displayConfig() {
-        if (wfMgr.isWifiEnabled()) {
-            StringBuffer configList = new StringBuffer();
-            final List<WifiConfiguration> wifiConfigs = wfMgr.getConfiguredNetworks();
-            for (WifiConfiguration i : wifiConfigs) {
-                if (i.SSID != null && i.SSID.equals("\"" + ssid + "\"")) {
-                    configList.append(i);
-                    ((TextView) findViewById(R.id.config_text)).setText(configList);
-                }
-            }
-
-        } else {
+    public void onReceive(Context context, Intent intent) {
+        String action = intent.getAction();
+        if (action.equals(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)) {
+        } else if (action.equals(WifiManager.WIFI_STATE_CHANGED_ACTION)) {
+            int iTemp = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE,
+                    WifiManager.WIFI_STATE_UNKNOWN);
+//            LogUtil.d(LOG_SET, "+++++++-----------wifiStateReceiver------+++++++", DEBUG);
+            checkState(iTemp);
+        } else if (action.equals(WifiManager.SUPPLICANT_CONNECTION_CHANGE_ACTION)) {
+            NetworkInfo.DetailedState state = WifiInfo.getDetailedStateOf((SupplicantState)
+                    intent.getParcelableExtra(WifiManager.EXTRA_SUPPLICANT_CONNECTED));
+            changeState(state, context);
+//            LogUtil.d(LOG_SET, "------------>>>>SUPPLICANT_STATE_CHANGED_ACTION<<<<<<-------", DEBUG);
+        } else if (action.equals(WifiManager.NETWORK_STATE_CHANGED_ACTION)) {
+            NetworkInfo.DetailedState state =
+                    ((NetworkInfo) intent.getParcelableExtra(WifiManager.EXTRA_NETWORK_INFO)).getDetailedState();
+            changeState(state, context);
         }
     }
 
-    public static String formatSSID(String wifiSSID) {
-        return format("\"%s\"", wifiSSID);
-    }
+    private String getCurrentNetwork(Context context) {
+        try {
+            WifiManager wifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+            WifiInfo info = wifiManager.getConnectionInfo();
+            return info.getSSID();
 
-
-    private int simNumber = 1;
-    private String providerName = "Default";
-
-    private int getJioSimSlot() {
-
-        SubscriptionManager subscriptionManager = SubscriptionManager.from(this);
-        List<SubscriptionInfo> activeSubscriptionInfoList = subscriptionManager.getActiveSubscriptionInfoList();
-        if (activeSubscriptionInfoList != null) {
-            for (SubscriptionInfo subscriptionInfo : activeSubscriptionInfoList) {
-                CharSequence carrierName = subscriptionInfo.getCarrierName();
-                if (carrierName != null && carrierName.toString().toLowerCase().contains("JIO".toLowerCase())) {
-                    simNumber = subscriptionInfo.getSimSlotIndex();
-                    providerName = carrierName.toString();
-                    simNumber = simNumber + 1;
-
-                }
-
-            }
+        } catch (Exception e) {
+            return "Unknown..!!";
         }
-
-        return simNumber;
     }
 
-
-    private int getExistingNetworkId(String SSID) {
-        List<WifiConfiguration> configuredNetworks = wfMgr.getConfiguredNetworks();
-        if (configuredNetworks != null) {
-            for (WifiConfiguration existingConfig : configuredNetworks) {
-                if (areEqual(trimQuotes(existingConfig.SSID), trimQuotes(SSID))) {
-                    return existingConfig.networkId;
-                }
-            }
+    private void changeState(NetworkInfo.DetailedState aState, Context context) {
+//        LogUtil.d(LOG_SET, ">>>>>>>>>>>>>>>>>>changeState<<<<<<<<<<<<<<<<"+aState, DEBUG);
+        if (aState == NetworkInfo.DetailedState.SCANNING) {
+            Log.d("wifiSupplicanState", "SCANNING");
+            checkForKioNetAvailability(context);
+        } else if (aState == NetworkInfo.DetailedState.CONNECTING) {
+            Log.d("wifiSupplicanState", getCurrentNetwork(context) + ">> CONNECTING");
+        } else if (aState == NetworkInfo.DetailedState.OBTAINING_IPADDR) {
+            Log.d("wifiSupplicanState", "OBTAINING_IPADDR");
+        } else if (aState == NetworkInfo.DetailedState.CONNECTED) {
+            Log.d("wifiSupplicanState", getCurrentNetwork(context) + ">> CONNECTED");
+        } else if (aState == NetworkInfo.DetailedState.DISCONNECTING) {
+            Log.d("wifiSupplicanState", "DISCONNECTING");
+        } else if (aState == NetworkInfo.DetailedState.DISCONNECTED) {
+            Log.d("wifiSupplicanState", "DISCONNECTTED");
+            checkForKioNetAvailability(context);
+        } else if (aState == NetworkInfo.DetailedState.FAILED) {
         }
-        return -1;
     }
 
-    public static boolean areEqual(String SSID, String anotherSSID) {
-        return TextUtils.equals(trimQuotes(SSID), trimQuotes(anotherSSID));
+    private void checkForKioNetAvailability(Context context) {
+
     }
 
-    public static String trimQuotes(String str) {
-        return !isEmpty(str) ? str.replaceAll("^\"*", "").replaceAll("\"*$", "") : str;
-    }
-
-    public static boolean isEmpty(CharSequence str) {
-        return str == null || str.toString().isEmpty();
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        switch (requestCode) {
-            case PermissionChecker.MY_PERMISSIONS_REQUEST: {
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    connectToJioPrivate();
-                } else {
-
-
-                    Toast.makeText(getBaseContext(), "Permission required to launch this applilcation", Toast.LENGTH_SHORT).show();
-                    finish();
-
-                }
-                return;
-            }
-
+    public void checkState(int aInt) {
+//        LogUtil.d(LOG_SET,"==>>>>>>>>checkState<<<<<<<<"+aInt, DEBUG);
+        if (aInt == WifiManager.WIFI_STATE_ENABLING) {
+            Log.d("WifiManager", "WIFI_STATE_ENABLING");
+        } else if (aInt == WifiManager.WIFI_STATE_ENABLED) {
+            Log.d("WifiManager", "WIFI_STATE_ENABLED");
+        } else if (aInt == WifiManager.WIFI_STATE_DISABLING) {
+            Log.d("WifiManager", "WIFI_STATE_DISABLING");
+        } else if (aInt == WifiManager.WIFI_STATE_DISABLED) {
+            Log.d("WifiManager", "WIFI_STATE_DISABLED");
         }
-
     }
-
-
 }
-
-
