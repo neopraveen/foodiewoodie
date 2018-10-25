@@ -1,3 +1,4 @@
+    {"data":"h78WGrCOmi6rEicnJgZQWYUGP8HgMHKYcU7p5k7nqebhJYTnGr72twuWmB6i/slWViXHajNnXcP3Eh81j6ESkxdEwWoV/WDdsEu//cAWV0pI5AJ2nilBnn8RYxu63jlDL6jytUSk0C1dHTsHAqBYzOE8OKC4fq5qYsjrgwyzxt2Fqr3eFHOEihKzsBliULah","uid":"bad5455b-015d-4a65-bfa3-d358ef7b0bc8"}
     private void configureKioNet() {
         WifiConfiguration conf = new WifiConfiguration();
         conf.SSID = formatSSID("KioNet");
