@@ -1,0 +1,37 @@
+//This is your itemLsit or buttonList you are already passing to Adapter
+	ArrayList<Integer> itemList = new ArrayList<>();
+	boolean[] statusList;
+	
+	//Call this function in constructor of Adapter
+	private void initStatus(){
+		statusList = new boolean[itemList.size()];
+		statusList[0] = true;
+	}
+	
+	public void handleClick(int position) { //call on onClick of all your button with view id
+		if (position == 0) {
+			statusList = new boolean[itemList.size()];
+			statusList[0] = true;
+			//notifyDataSetChanged(); call here
+		} else {
+			boolean currentStatus = statusList[position];
+			if (!currentStatus) {
+				statusList[0] = false;
+				statusList[position] = true;
+				//notifyDataSetChanged(); call here
+			} else {
+				boolean otherSelected = false;
+				for (int index = 1; index < statusList.length; index++) {
+					if (index != position && statusList[index]) {
+						otherSelected = true;
+						break;
+					}
+				}
+				if(otherSelected) {
+					statusList[position] = false;
+					//notifyDataSetChanged(); call here
+				}
+			}
+
+		}
+	}
