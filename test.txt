@@ -6,7 +6,8 @@ import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.util.Log;
-
+import android.util.Log;
+//Just for testing purpose
 /**
  * Created by ProBook on 10/16/2017.
  */
